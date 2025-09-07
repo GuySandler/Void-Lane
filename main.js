@@ -8,6 +8,7 @@ let buildmode = true;
 let scene;
 let playCamera;
 let buildCamera;
+let platformMaterial;
 
 const createBaseScene = () => {
     const scene = new BABYLON.Scene(engine);
@@ -39,7 +40,7 @@ const createBaseScene = () => {
 	startPlatform.position.y = -0.25;
 	BABYLON.Tags.AddTagsTo(startPlatform, "platform");
 
-	const platformMaterial = new BABYLON.StandardMaterial("platformMaterial", scene);
+	platformMaterial = new BABYLON.StandardMaterial("platformMaterial", scene);
 	platformMaterial.diffuseColor = new BABYLON.Color3(0.5, 0.5, 0.5);
 	startPlatform.material = platformMaterial;
 
@@ -83,16 +84,22 @@ function switchMode() {
 	}
 }
 
-function getClick(event) {
+let firstClickPoint = null;
+
+function getClick(event, step=1) {
 	const rect = canvas.getBoundingClientRect();
 	const x = event.clientX - rect.left;
 	const y = event.clientY - rect.top;
 
 	const pickInfo = scene.pick(x, y);
 	
+	let finalPoint = null;
+	
 	if (pickInfo.hit) {
 		const pickedPoint = pickInfo.pickedPoint;
 		const pickedMesh = pickInfo.pickedMesh;
+
+		finalPoint = pickedPoint;
 
 		if (snapmode == true) {
 			// get nearest snap indicator
@@ -107,14 +114,69 @@ function getClick(event) {
 				}
 			}
 			if (nearestIndicator) {
-				createClickIndicator(nearestIndicator.position);
-				return;
+				finalPoint = nearestIndicator.position;
 			}
 		}
-
-		createClickIndicator(pickedPoint);
 	} else {
-		console.log("No mesh was hit");
+		if (firstClickPoint !== null) {
+			const ray = scene.createPickingRay(x, y, BABYLON.Matrix.Identity(), scene.activeCamera);
+			const firstPointDistance = BABYLON.Vector3.Distance(scene.activeCamera.position, firstClickPoint);
+			finalPoint = ray.origin.add(ray.direction.scale(firstPointDistance));
+		} else {
+			console.log("First click must be on a surface. Click on a mesh first.");
+			return null;
+		}
+	}
+
+	if (finalPoint) {
+		if (firstClickPoint === null) {
+			if (!pickInfo.hit) {
+				console.log("First click must be on a surface. Click on a mesh first.");
+				return null;
+			}
+			firstClickPoint = finalPoint.clone();
+			createClickIndicator(finalPoint);
+			console.log("First point selected. Click again (anywhere) to create platform.");
+			return finalPoint;
+		} else {
+			const secondPoint = finalPoint;
+			createPlatformBetweenPoints(firstClickPoint, secondPoint);
+			firstClickPoint = null;
+			console.log("Platform created between points.");
+			return secondPoint;
+		}
+	}
+}
+
+function createPlatformBetweenPoints(point1, point2) {
+	const directionVector = point2.subtract(point1);
+	const distance = directionVector.length();
+
+	const normalizedDirection = directionVector.normalize();
+	const centerPoint = point1.add(normalizedDirection.scale(distance / 2));
+	const platform = BABYLON.MeshBuilder.CreateBox("platform", {
+		height: 0.5,
+		width: 5,
+		depth: distance
+	}, scene);
+
+	platform.position = centerPoint;
+
+	const yaw = Math.atan2(normalizedDirection.x, normalizedDirection.z);
+	const pitch = Math.asin(-normalizedDirection.y);
+
+	platform.rotation.y = yaw;
+	platform.rotation.x = pitch;
+	BABYLON.Tags.AddTagsTo(platform, "platform");
+
+	platform.material = platformMaterial;
+
+	if (snapmode) {
+		const snapIndicators = scene.getMeshesByTags("snapIndicator");
+		for (const indicator of snapIndicators) {
+			indicator.dispose();
+		}
+		snapMode();
 	}
 }
 
