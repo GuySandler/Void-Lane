@@ -9,6 +9,7 @@ let scene;
 let playCamera;
 let buildCamera;
 let platformMaterial;
+let keys = {}; // Track pressed keys
 
 const createBaseScene = () => {
     const scene = new BABYLON.Scene(engine);
@@ -47,10 +48,91 @@ const createBaseScene = () => {
     return scene;
 };
 
+let gravityVector = new BABYLON.Vector3(0, -9.81, 0);
+let havokInstance;
+
 scene = createBaseScene();
 
-function gameLoop() {
+const initializePhysics = async () => {
+	scene.enablePhysics(gravityVector, new BABYLON.CannonJSPlugin());
+	setTimeout(() => {
+		addPhysicsToExistingMeshes();
+	}, 100);
+};
 
+initializePhysics();
+
+function addPhysicsToExistingMeshes() {
+	if (!scene.getPhysicsEngine()) {
+		console.error("Physics engine not available");
+		return;
+	}
+
+	const player = scene.getMeshByName("player");
+	if (player) {
+		try {
+			player.physicsImpostor = new BABYLON.PhysicsImpostor(player, BABYLON.PhysicsImpostor.BoxImpostor, { 
+				mass: 1, 
+				restitution: 0.3,
+				friction: 0.5
+			}, scene);
+			console.log("Physics added to player");
+		} catch (error) {
+			console.error("Failed to add physics to player:", error);
+		}
+	}
+
+	const platforms = scene.getMeshesByTags("platform");
+	platforms.forEach((platform, index) => {
+		try {
+			platform.physicsImpostor = new BABYLON.PhysicsImpostor(platform, BABYLON.PhysicsImpostor.BoxImpostor, { 
+				mass: 0,
+				restitution: 0.7,
+				friction: 0.8
+			}, scene);
+			console.log(`Physics added to platform ${index + 1}`);
+		} catch (error) {
+			console.error(`Failed to add physics to platform ${index + 1}:`, error);
+		}
+	});
+}
+
+function gameLoop() {
+	if (!buildmode) {
+		handlePlayerMovement();
+	}
+}
+
+function handlePlayerMovement() {
+	const player = scene.getMeshByName("player");
+	if (!player || !player.physicsImpostor) return;
+	
+	const moveSpeed = 5;
+	const jumpForce = 8;
+	const velocity = player.physicsImpostor.getLinearVelocity();
+
+	let moveX = 0;
+	let moveZ = 0;
+	
+	if (keys['KeyW'] || keys['ArrowUp']) moveZ = moveSpeed;
+	if (keys['KeyS'] || keys['ArrowDown']) moveZ = -moveSpeed;
+	if (keys['KeyA'] || keys['ArrowLeft']) moveX = -moveSpeed;
+	if (keys['KeyD'] || keys['ArrowRight']) moveX = moveSpeed;
+
+	player.physicsImpostor.setLinearVelocity(new BABYLON.Vector3(moveX, velocity.y, moveZ));
+
+	if (keys['Space'] && Math.abs(velocity.y) < 0.1) {
+		player.physicsImpostor.applyImpulse(new BABYLON.Vector3(0, jumpForce, 0), player.getAbsolutePosition());
+	}
+
+	if (playCamera && scene.activeCamera === playCamera) {
+		const playerPos = player.position;
+		playCamera.setTarget(playerPos);
+
+		const cameraOffset = new BABYLON.Vector3(0, 5, -10);
+		const desiredCameraPos = playerPos.add(cameraOffset);
+		playCamera.position = BABYLON.Vector3.Lerp(playCamera.position, desiredCameraPos, 0.1);
+	}
 }
 
 engine.runRenderLoop(() => {
@@ -66,6 +148,14 @@ window.addEventListener("resize", () => {
     engine.resize();
 });
 
+window.addEventListener("keydown", (event) => {
+	keys[event.code] = true;
+});
+
+window.addEventListener("keyup", (event) => {
+	keys[event.code] = false;
+});
+
 window.addEventListener("click", (event) => {
 	if (buildmode) {
 		getClick(event);
@@ -75,12 +165,23 @@ window.addEventListener("click", (event) => {
 function switchMode() {
 	buildmode = !buildmode;
 	const button = document.getElementById("switchMode");
+	const player = scene.getMeshByName("player");
+	
 	if (buildmode) {
 		button.textContent = "Building Mode";
 		scene.activeCamera = buildCamera;
+		buildCamera.attachControls(canvas);
 	} else {
 		button.textContent = "Play Mode";
 		scene.activeCamera = playCamera;
+		buildCamera.detachControls();
+		
+		if (player) {
+			const playerPos = player.position;
+			playCamera.setTarget(playerPos);
+			playCamera.position = playerPos.add(new BABYLON.Vector3(0, 5, -10));
+			playCamera.attachControls(canvas);
+		}
 	}
 }
 
@@ -170,6 +271,14 @@ function createPlatformBetweenPoints(point1, point2) {
 	BABYLON.Tags.AddTagsTo(platform, "platform");
 
 	platform.material = platformMaterial;
+
+	if (scene.getPhysicsEngine()) {
+		platform.physicsImpostor = new BABYLON.PhysicsImpostor(platform, BABYLON.PhysicsImpostor.BoxImpostor, { 
+			mass: 0,
+			restitution: 0.7,
+			friction: 0.8
+		}, scene);
+	}
 
 	if (snapmode) {
 		const snapIndicators = scene.getMeshesByTags("snapIndicator");
