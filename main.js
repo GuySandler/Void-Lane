@@ -9,17 +9,17 @@ let scene;
 let playCamera;
 let buildCamera;
 let platformMaterial;
-let keys = {}; // Track pressed keys
+let keys = {};
 
 const createBaseScene = () => {
     const scene = new BABYLON.Scene(engine);
 	BABYLON.Tags.EnableFor(scene);
 
-	playCamera = new BABYLON.ArcRotateCamera("playCamera", Math.PI / 2, Math.PI / 2.5, 20, BABYLON.Vector3.Zero(), scene);
+	playCamera = new BABYLON.ArcRotateCamera("playCamera", -Math.PI / 2, Math.PI / 2.5, 20, BABYLON.Vector3.Zero(), scene);
 	playCamera.fov = 0.8;
 	// playCamera.attachControl(canvas, true);
 
-	buildCamera = new BABYLON.ArcRotateCamera("buildCamera", Math.PI / 2, Math.PI / 2.5, 20, BABYLON.Vector3.Zero(), scene);
+	buildCamera = new BABYLON.ArcRotateCamera("buildCamera", -Math.PI / 2, Math.PI / 2.5, 20, BABYLON.Vector3.Zero(), scene);
 	buildCamera.fov = 0.8;
 	buildCamera.attachControl(canvas, true);
 
@@ -74,7 +74,7 @@ function addPhysicsToExistingMeshes() {
 			player.physicsImpostor = new BABYLON.PhysicsImpostor(player, BABYLON.PhysicsImpostor.BoxImpostor, { 
 				mass: 1, 
 				restitution: 0.3,
-				friction: 0.5
+				friction: 0
 			}, scene);
 			console.log("Physics added to player");
 		} catch (error) {
@@ -88,7 +88,7 @@ function addPhysicsToExistingMeshes() {
 			platform.physicsImpostor = new BABYLON.PhysicsImpostor(platform, BABYLON.PhysicsImpostor.BoxImpostor, { 
 				mass: 0,
 				restitution: 0.7,
-				friction: 0.8
+				friction: 0
 			}, scene);
 			console.log(`Physics added to platform ${index + 1}`);
 		} catch (error) {
@@ -103,6 +103,7 @@ function gameLoop() {
 	}
 }
 
+let speed = .5;
 function handlePlayerMovement() {
 	const player = scene.getMeshByName("player");
 	if (!player || !player.physicsImpostor) return;
@@ -113,26 +114,18 @@ function handlePlayerMovement() {
 
 	let moveX = 0;
 	let moveZ = 0;
-	
-	if (keys['KeyW'] || keys['ArrowUp']) moveZ = moveSpeed;
-	if (keys['KeyS'] || keys['ArrowDown']) moveZ = -moveSpeed;
+
 	if (keys['KeyA'] || keys['ArrowLeft']) moveX = -moveSpeed;
 	if (keys['KeyD'] || keys['ArrowRight']) moveX = moveSpeed;
 
-	player.physicsImpostor.setLinearVelocity(new BABYLON.Vector3(moveX, velocity.y, moveZ));
+	player.rotation.y = Math.atan2(moveX, moveZ);
+	player.applyImpulse(new BABYLON.Vector3(0, 0, speed).rotateByQuaternionToRef(player.rotationQuaternion, new BABYLON.Vector3()), player.getAbsolutePosition());
 
-	if (keys['Space'] && Math.abs(velocity.y) < 0.1) {
-		player.physicsImpostor.applyImpulse(new BABYLON.Vector3(0, jumpForce, 0), player.getAbsolutePosition());
-	}
-
-	if (playCamera && scene.activeCamera === playCamera) {
-		const playerPos = player.position;
-		playCamera.setTarget(playerPos);
-
-		const cameraOffset = new BABYLON.Vector3(0, 5, -10);
-		const desiredCameraPos = playerPos.add(cameraOffset);
-		playCamera.position = BABYLON.Vector3.Lerp(playCamera.position, desiredCameraPos, 0.1);
-	}
+	// follow player position and rotation
+	const playerPos = player.position;
+	const cameraOffset = new BABYLON.Vector3(0, 5, -10);
+	const desiredCameraPos = playerPos.add(cameraOffset);
+	playCamera.position = BABYLON.Vector3.Lerp(playCamera.position, desiredCameraPos, 0.1);
 }
 
 engine.runRenderLoop(() => {
@@ -174,7 +167,6 @@ function switchMode() {
 	} else {
 		button.textContent = "Play Mode";
 		scene.activeCamera = playCamera;
-		buildCamera.detachControls();
 		
 		if (player) {
 			const playerPos = player.position;
